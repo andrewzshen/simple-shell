@@ -2,10 +2,8 @@
 #include <string.h>
 #include <unistd.h>
 
-int main()
-{
+int main() {
     while (1) {
-        
     }
 
     return 0;
