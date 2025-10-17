@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
         lexer.input_length = strlen(lexer.input);
         
         run(&lexer);
-
+    
         int background = 0;
 
         if (lexer.token_count >= 2 && lexer.tokens[lexer.token_count - 2].type == TOKEN_BACKGROUND) {
@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
+void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) { 
     pid_t pid = fork();
 
     if (pid == 0) { 
@@ -73,6 +73,7 @@ void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
 
         for (int i = start; i <= end; i++) {
             if (tokens[i].type == TOKEN_REDIRECT_IN || tokens[i].type == TOKEN_REDIRECT_OUT) {
+                /* skip the filename token after a redirection, if present */
                 if (i + 1 <= end && tokens[i + 1].type == TOKEN_WORD) {
                     i++;
                 }
@@ -132,27 +133,27 @@ void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int ou
     for (size_t i = start; i <= cmd_end; i++) {
         if (tokens[i].type == TOKEN_REDIRECT_IN) {
             if (i + 1 > end || tokens[i + 1].type != TOKEN_WORD) {
-                perror("ERROR: missing input file after <");
+                fprintf(stderr, "ERROR: missing input file after <\n");
                 return;
             }
 
             real_in = open(tokens[i + 1].lexeme, O_RDONLY);
             
             if (real_in < 0) {
-                perror("ERROR: open input");
+                fprintf(stderr, "ERROR: open input\n");
                 return;
             }
             i++;
         } else if (tokens[i].type == TOKEN_REDIRECT_OUT) {
             if (i + 1 > end || tokens[i + 1].type != TOKEN_WORD) {
-                perror("ERROR: missing output file after >");
+                fprintf(stderr, "ERROR: missing output file after >\n");
                 return;
             }
             
             real_out = open(tokens[i + 1].lexeme, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             
             if (real_out < 0) {
-                perror("ERROR: open output");
+                fprintf(stderr, "ERROR: open output\n");
                 return;
             }
             i++;
@@ -167,13 +168,13 @@ void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int ou
     int pipe_fd[2];
     
     if (pipe(pipe_fd) < 0) {
-        perror("ERROR: pipe");
+        fprintf(stderr, "ERROR: pipe\n");
         return;
     }
 
     child_tokens(tokens, cmd_start, cmd_end, real_in, pipe_fd[1]);
     close(pipe_fd[1]);
 
-    execute_tokens(tokens, pipe_index, end, pipe_fd[0], real_out);
+    execute_tokens(tokens, pipe_index + 1, end, pipe_fd[0], real_out);
     close(pipe_fd[0]);
 }

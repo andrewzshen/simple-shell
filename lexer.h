@@ -46,7 +46,7 @@ struct state {
     state_t *(*statefn)(lexer_t *lexer);
 };
 
-#define IS_METACHAR(ch) (ch == '>') || (ch == '<') || (ch == '|') || (ch == '&')
+#define IS_METACHAR(ch) ((ch == '>') || (ch == '<') || (ch == '|') || (ch == '&'))
 
 void run(lexer_t *lexer);
 
