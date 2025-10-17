@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include <ctype.h>
 
 #include "lexer.h"
@@ -18,11 +19,11 @@ static void backup(lexer_t *lexer);
 static bool accept(lexer_t *lexer, const char valid_chars[]);
 static void accept_run(lexer_t *lexer, const char valid_chars[]);
 
-static state_t *lex(lexer_t *lexer);
+static state_t *lex_base(lexer_t *lexer);
 static state_t *lex_word(lexer_t *lexer);
 static state_t *lex_metachar(lexer_t *lexer);
 
-static state_t base_state = { .statefn = lex };
+static state_t base_state = { .statefn = lex_base };
 static state_t word_state = { .statefn = lex_word };
 static state_t metachar_state = { .statefn = lex_metachar };
 
@@ -34,23 +35,22 @@ static void emit(lexer_t *lexer, token_type_t type) {
     token_t token;
     token.type = type;
 
-    const char *token_start = lexer->input + lexer->start_pos;
-    size_t token_width = lexer->curr_pos - lexer->start_pos;
-    strncpy(token.text, token_start, token_width);
-    token.text[token_width] = '\0';
+    const char *lexeme_start = lexer->input + lexer->start_pos;
+    const size_t lexeme_width = lexer->curr_pos - lexer->start_pos;
+    strncpy(token.lexeme, lexeme_start, lexeme_width);
+    token.lexeme[lexeme_width] = '\0';
 
     lexer->tokens[lexer->token_count] = token;
     lexer->token_count++;
 
     lexer->start_pos = lexer->curr_pos;
-
-    printf("%s\n", token.text);
 }
 
 static char next(lexer_t *lexer) {
     if (lexer->curr_pos >= lexer->input_length) {
         return '\0';
     }
+
     return lexer->input[lexer->curr_pos++];
 }
 
@@ -82,17 +82,16 @@ static void accept_run(lexer_t *lexer, const char valid_chars[]) {
     backup(lexer);
 }
 
-static state_t *lex(lexer_t *lexer) {
-    while (1) {
-        if (peek(lexer) == '\0') {
-            break; 
-        }
-
+static state_t *lex_base(lexer_t *lexer) {
+    while (true) {
         char ch = next(lexer);
 
-        if (isspace(ch)) {
+        if (ch == '\0') {
+            break;
+        } else if (isspace(ch)) {
             ignore(lexer);
         } else if (IS_METACHAR(ch)) {
+            backup(lexer);
             return &metachar_state;
         } else {
             backup(lexer);
@@ -104,9 +103,17 @@ static state_t *lex(lexer_t *lexer) {
     return NULL;
 }
 
-static state_t *lex_word(lexer_t *lexer) {
-    const char valid_chars[] = ".qwertyuiopasdfghjklzxcvbnm";
-    accept_run(lexer, valid_chars);
+static state_t *lex_word(lexer_t *lexer) { 
+    while (true) {
+        char ch = next(lexer);
+
+        if (ch == '\0') {
+            break;
+        } else if (isspace(ch) || IS_METACHAR(ch)) {
+            backup(lexer);
+            break;
+        }
+    }
 
     emit(lexer, TOKEN_WORD);
     return &base_state;

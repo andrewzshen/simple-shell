@@ -1,5 +1,4 @@
 #include <stddef.h>
-#include <stdbool.h>
 
 #ifndef LEXER_H
 #define LEXER_H
@@ -25,7 +24,7 @@ typedef enum token_type {
 
 typedef struct token { 
     token_type_t type;   // What type of token it is
-    char text[MAX_TOKEN_LENGTH]; // The contents of the token
+    char lexeme[MAX_TOKEN_LENGTH]; // The contents of the token
 } token_t;
 
 typedef struct lexer {
