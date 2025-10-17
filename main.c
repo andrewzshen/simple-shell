@@ -9,6 +9,7 @@
 
 #define PROMPT "shell: " 
 
+void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd);
 void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int out_fd);
 
 int main(int argc, char *argv[]) {
@@ -71,6 +72,13 @@ void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
         int argc = 0;
 
         for (int i = start; i <= end; i++) {
+            if (tokens[i].type == TOKEN_REDIRECT_IN || tokens[i].type == TOKEN_REDIRECT_OUT) {
+                if (i + 1 <= end && tokens[i + 1].type == TOKEN_WORD) {
+                    i++;
+                }
+                continue;
+            }
+
             if (tokens[i].type == TOKEN_WORD) {
                 argv[argc++] = tokens[i].lexeme;
             }
@@ -108,6 +116,13 @@ void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int ou
             break;
         }
     }
+    
+    if (pipe_index != -1) {
+        if (pipe_index + 1 > end || tokens[pipe_index + 1].type == TOKEN_PIPE || tokens[pipe_index + 1].type == TOKEN_EOF) {
+            fprintf(stderr, "ERROR: missing command after |\n");
+            return;
+        }
+    }
 
     int real_in = in_fd;
     int real_out = out_fd;
@@ -127,6 +142,7 @@ void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int ou
                 perror("ERROR: open input");
                 return;
             }
+            i++;
         } else if (tokens[i].type == TOKEN_REDIRECT_OUT) {
             if (i + 1 > end || tokens[i + 1].type != TOKEN_WORD) {
                 perror("ERROR: missing output file after >");
@@ -139,6 +155,7 @@ void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int ou
                 perror("ERROR: open output");
                 return;
             }
+            i++;
         }
     }
 
