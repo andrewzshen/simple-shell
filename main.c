@@ -1,177 +1,161 @@
-#include <stdlib.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include "lexer.h"
 
-#define PROMPT "shell: "
+#define PROMPT "shell: " 
 
-void execute_tokens(token_t *tokens, size_t token_count);
+void execute_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd);
 
-int main(int argc, char **argv) {
-    if (argc > 2) {
-        perror("Shell usage: ./main [-n]");
-        return 1;
-    }
-
-    int show_prompt = 1;
-
-    if (argc > 1 && (strcmp(argv[1], "-n") == 0)) {
-        show_prompt = 0;
-    }
-
-    char input[MAX_INPUT_LENGTH];
+int main(int argc, char *argv[]) {
+    int no_prompt = (argc > 1 && strcmp(argv[1], "-n") == 0);
+    char line[MAX_INPUT_LENGTH];
 
     while (1) {
-        if (show_prompt) {
-            printf(PROMPT);
+        if (!no_prompt) {
+            printf("shell: ");
             fflush(stdout);
         }
 
-        if (fgets(input, sizeof(input), stdin) == NULL) {
+        if (fgets(line, sizeof(line), stdin) == NULL) {
             printf("\n");
             break;
         }
 
         lexer_t lexer = {0};
 
-        strncpy(lexer.input, input, MAX_INPUT_LENGTH);
-        lexer.input_length = strlen(input);
-
-        run(&lexer);
+        strncpy(lexer.input, line, sizeof(lexer.input) - 1);
+        lexer.input_length = strlen(lexer.input);
         
-        execute_tokens(lexer.tokens, lexer.token_count);
+        run(&lexer);
+
+        int background = 0;
+
+        if (lexer.tokens[lexer.token_count - 2].type == TOKEN_BACKGROUND) {
+            background = 1;
+            lexer.token_count -= 1;
+        }
+
+        execute_tokens(lexer.tokens, 0, lexer.token_count - 2, STDIN_FILENO, STDOUT_FILENO);
+
+        if (!background) {
+            while (waitpid(-1, NULL, WNOHANG) == 0) {
+                wait(NULL);
+            }
+        }
     }
 
     return 0;
 }
 
-void execute_command(char **argv, int background) {
+void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
     pid_t pid = fork();
-    if (pid < 0) {
-        perror("ERROR: fork failed");
-        return;
+
+    if (pid == 0) { 
+        if (in_fd != STDIN_FILENO) {
+            dup2(in_fd, STDIN_FILENO);
+            close(in_fd);
+        }
+
+        if (out_fd != STDOUT_FILENO) {
+            dup2(out_fd, STDOUT_FILENO);
+            close(out_fd);
+        }
+
+        char *argv[MAX_INPUT_LENGTH];
+        int argc = 0;
+
+        for (int i = start; i <= end; i++) {
+            if (tokens[i].type == TOKEN_WORD) {
+                argv[argc++] = tokens[i].lexeme;
+            }
+        }
+
+        argv[argc] = NULL;
+
+        if (argc > 0) {
+            execvp(argv[0], argv);
+            fprintf(stderr, "ERROR: command not found: %s\n", argv[0]);
+        }
+        _exit(1);
     }
 
-    if (pid == 0) {
-        execvp(argv[0], argv);
-        perror("ERROR: exec failed");
+    if (pid < 0) {
+        fprintf(stderr, "ERROR: fork failed\n");
         exit(1);
     }
 
-    if (!background) {
-        int status;
-        waitpid(pid, &status, 0);
+    if (in_fd != STDIN_FILENO) {
+        close(in_fd);
+    }
+    
+    if (out_fd != STDOUT_FILENO) {
+        close(out_fd);
     }
 }
 
-void execute_pipeline(char ***commands, size_t cmd_count, int background) {
-    int pipefd[2];
-    int prev_fd = -1;
+void execute_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
+    int pipe_index = -1;
 
-    for (size_t i = 0; i < cmd_count; i++) {
-        if (i < cmd_count - 1) {
-            if (pipe(pipefd) == -1) {
-                perror("ERROR: pipe failed");
+    for (int i = start; i <= end; i++) {
+        if (tokens[i].type == TOKEN_PIPE) {
+            pipe_index = i;
+            break;
+        }
+    }
+
+    int real_in = in_fd;
+    int real_out = out_fd;
+    int cmd_start = start;
+    int cmd_end = (pipe_index == -1) ? end : pipe_index - 1;
+
+    for (int i = start; i <= cmd_end; i++) {
+        if (tokens[i].type == TOKEN_REDIRECT_IN) {
+            if (i + 1 > end || tokens[i + 1].type != TOKEN_WORD) {
+                fprintf(stderr, "ERROR: missing input file after <\n");
+                return;
+            }
+
+            real_in = open(tokens[i + 1].lexeme, O_RDONLY);
+            
+            if (real_in < 0) {
+                perror("ERROR: open input");
+                return;
+            }
+        } else if (tokens[i].type == TOKEN_REDIRECT_OUT) {
+            if (i + 1 > end || tokens[i + 1].type != TOKEN_WORD) {
+                fprintf(stderr, "ERROR: missing output file after >\n");
+                return;
+            }
+            
+            real_out = open(tokens[i + 1].lexeme, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            
+            if (real_out < 0) {
+                perror("ERROR: open output");
                 return;
             }
         }
-
-        pid_t pid = fork();
-        if (pid < 0) {
-            perror("ERROR: fork failed");
-            return;
-        }
-
-        if (pid == 0) {
-            if (prev_fd != -1) {
-                dup2(prev_fd, STDIN_FILENO);
-                close(prev_fd);
-            }
-            if (i < cmd_count - 1) {
-                close(pipefd[0]);
-                dup2(pipefd[1], STDOUT_FILENO);
-                close(pipefd[1]);
-            }
-            execvp(commands[i][0], commands[i]);
-            perror("ERROR: exec failed");
-            _exit(1);
-        }
-
-        if (prev_fd != -1) {
-            close(prev_fd);
-        }
-
-        if (i < cmd_count - 1) {
-            close(pipefd[1]);
-            prev_fd = pipefd[0];
-        }
     }
 
-    if (!background) {
-        for (size_t i = 0; i < cmd_count; i++) {
-            wait(NULL);
-        }
+    if (pipe_index == -1) {
+        child_tokens(tokens, cmd_start, cmd_end, real_in, real_out);
+        return;
     }
-}
 
-void execute_tokens(token_t *tokens, size_t token_count) {
-    size_t i = 0;
-
-    while (i < token_count) {
-        char *argv[64];
-        size_t argc = 0;
-
-        char **pipeline_cmds[16];
-        size_t pipeline_count = 0;
-
-        int background = 0;
-
-        while (i < token_count) {
-            if (tokens[i].type == TOKEN_WORD) {
-                argv[argc++] = tokens[i].lexeme;
-                i++;
-            } else if (tokens[i].type == TOKEN_PIPE) {
-                argv[argc] = NULL;
-                pipeline_cmds[pipeline_count] = malloc(sizeof(char*) * (argc + 1));
-                for (size_t j = 0; j <= argc; j++) {
-                    pipeline_cmds[pipeline_count][j] = argv[j];
-                }
-                pipeline_count++;
-                argc = 0;
-                i++;
-            } else if (tokens[i].type == TOKEN_BACKGROUND) {
-                background = 1;
-                i++;
-                break;
-            } else if (tokens[i].type == TOKEN_EOF) {
-                break;
-            } else {
-                i++;
-            }
-        }
-
-        if (argc > 0) {
-            argv[argc] = NULL;
-            pipeline_cmds[pipeline_count] = malloc(sizeof(char*) * (argc + 1));
-
-            for (size_t j = 0; j <= argc; j++) {
-                pipeline_cmds[pipeline_count][j] = argv[j];
-            }
-
-            pipeline_count++;
-        }
-
-        if (pipeline_count == 1) {
-            execute_command(pipeline_cmds[0], background);
-        } else if (pipeline_count > 1) {
-            execute_pipeline(pipeline_cmds, pipeline_count, background);
-        }
-
-        for (size_t k = 0; k < pipeline_count; k++) {
-            free(pipeline_cmds[k]);
-        }
+    int pipe_fd[2];
+    
+    if (pipe(pipe_fd) < 0) {
+        perror("ERROR: pipe");
+        return;
     }
+
+    child_tokens(tokens, cmd_start, cmd_end, real_in, pipe_fd[1]);
+    close(pipe_fd[1]);
+
+    execute_tokens(tokens, pipe_index + 1, end, pipe_fd[0], real_out);
+    close(pipe_fd[0]);
 }
