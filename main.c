@@ -89,24 +89,6 @@ void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
             close(out_fd);
         }
 
-        char *argv[MAX_INPUT_LENGTH];
-        int argc = 0;
-
-        for (int i = start; i <= end; i++) {
-            if (tokens[i].type == TOKEN_REDIRECT_IN || tokens[i].type == TOKEN_REDIRECT_OUT) {
-                if (i + 1 <= end && tokens[i + 1].type == TOKEN_WORD) {
-                    i++;
-                }
-                continue;
-            }
-
-            if (tokens[i].type == TOKEN_WORD) {
-                argv[argc++] = tokens[i].lexeme;
-            }
-        }
-
-        argv[argc] = NULL;
-
         if (argc > 0) {
             execvp(argv[0], argv);
             fprintf(stderr, "ERROR: command not found: %s\n", argv[0]);
