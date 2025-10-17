@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         if (!no_prompt) {
-            printf("shell: ");
+            printf(PROMPT);
             fflush(stdout);
         }
 
@@ -35,17 +35,18 @@ int main(int argc, char *argv[]) {
 
         int background = 0;
 
-        if (lexer.tokens[lexer.token_count - 2].type == TOKEN_BACKGROUND) {
+        if (lexer.token_count >= 2 && lexer.tokens[lexer.token_count - 2].type == TOKEN_BACKGROUND) {
             background = 1;
+            lexer.tokens[lexer.token_count - 2] = lexer.tokens[lexer.token_count - 1];
             lexer.token_count--;
         }
 
-        execute_tokens(lexer.tokens, 0, lexer.token_count - 1, STDIN_FILENO, STDOUT_FILENO);
+        if (lexer.token_count > 0) {
+            execute_tokens(lexer.tokens, 0, lexer.token_count - 1, STDIN_FILENO, STDOUT_FILENO);
+        }
 
         if (!background) {
-            while (waitpid(-1, NULL, WNOHANG) == 0) {
-                wait(NULL);
-            }
+            while (waitpid(-1, NULL, 0) > 0);
         }
     }
 
