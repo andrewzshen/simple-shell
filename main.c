@@ -57,7 +57,6 @@ int main(int argc, char *argv[]) {
 
         if (lexer.token_count >= 2 && lexer.tokens[lexer.token_count - 2].type == TOKEN_BACKGROUND) {
             background = 1;
-            lexer.tokens[lexer.token_count - 2] = lexer.tokens[lexer.token_count - 1];
             lexer.token_count--;
         }
 
