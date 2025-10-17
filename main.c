@@ -12,6 +12,25 @@
 void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd);
 void execute_tokens(token_t *tokens, size_t start, size_t end, int in_fd, int out_fd);
 
+int build_args_from_tokens(token_t *tokens, int start, int end, char *argv[], int max_argv) {
+    int argc = 0;
+    for (int i = start; i <= end && argc < max_argv - 1; i++) {
+        if (tokens[i].type == TOKEN_REDIRECT_IN || tokens[i].type == TOKEN_REDIRECT_OUT) {
+            if (i + 1 <= end && tokens[i + 1].type == TOKEN_WORD) {
+                i++;
+            }
+            continue;
+        }
+
+        if (tokens[i].type == TOKEN_WORD) {
+            argv[argc++] = tokens[i].lexeme;
+        }
+    }
+
+    argv[argc] = NULL;
+    return argc;
+}
+
 int main(int argc, char *argv[]) {
     int no_prompt = (argc > 1 && strcmp(argv[1], "-n") == 0);
     char line[MAX_INPUT_LENGTH];
@@ -55,6 +74,9 @@ int main(int argc, char *argv[]) {
 }
 
 void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) { 
+    char *argv[MAX_INPUT_LENGTH];
+    int argc = build_args_from_tokens(tokens, start, end, argv, MAX_INPUT_LENGTH);
+
     pid_t pid = fork();
 
     if (pid == 0) { 
@@ -73,7 +95,6 @@ void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
 
         for (int i = start; i <= end; i++) {
             if (tokens[i].type == TOKEN_REDIRECT_IN || tokens[i].type == TOKEN_REDIRECT_OUT) {
-                /* skip the filename token after a redirection, if present */
                 if (i + 1 <= end && tokens[i + 1].type == TOKEN_WORD) {
                     i++;
                 }
@@ -91,6 +112,9 @@ void child_tokens(token_t *tokens, int start, int end, int in_fd, int out_fd) {
             execvp(argv[0], argv);
             fprintf(stderr, "ERROR: command not found: %s\n", argv[0]);
         }
+
+        execvp(argv[0], argv);
+        fprintf(stderr, "ERROR: command not found: %s\n", argv[0]);
         _exit(1);
     }
 
