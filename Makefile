@@ -1,6 +1,6 @@
 CC := gcc
 CFLAGS := -std=c11 -Wall -Wextra -g
-TARGET := main
+TARGET := simple_shell
 
 SRC := $(wildcard *.c)
 OBJ := $(SRC:.c=.o)
